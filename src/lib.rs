@@ -178,7 +178,7 @@ impl<
      pub fn save_file_bytes(&mut self, inode: &Inode<MAX_FILE_BLOCKS, BLOCK_SIZE>) {
         // todo!("Write the file pointed to by inode from the file content buffer onto the disk.");
          // For each inode block in use
-         for i in 0..inode.blocks.len() {
+         for i in 0..inode.blocks_used() {
              for j in 0..BLOCK_SIZE {
                  self.block_buffer[j] = self.file_content_buffer[(i * BLOCK_SIZE) + j];
                  self.disk.write(inode.blocks[i].into(), &self.block_buffer).unwrap();
@@ -639,17 +639,47 @@ impl<
     }
 
     pub fn write(&mut self, fd: usize, buffer: &[u8]) -> anyhow::Result<(), FileSystemError> {
-        todo!("Write to `fd` until `buffer` is empty.");
+        //todo!("Write to `fd` until `buffer` is empty.");
         // Examine the FileInfo object from `open` for this file.
-        // * If it doesn't have an entry, return FileNotOpen.
-        // * If not open for writing, return NotOpenForWrite.
-        // Copy each byte from `buffer` into the FileInfo object's block buffer.
-        // * If the block buffer fills up before `buffer` is empty:
-        //   * Write the current block buffer contents to disk.
-        //     * If the file exceeds the maximum size, return FileTooBig.
-        //   * Request a new data block.
-        //   * Be sure to update your inode!
-        // * When finished, make sure to write the current block to disk.
+        match self.open[fd] {
+            // * If it doesn't have an entry, return FileNotOpen.
+            None => return Err(FileSystemError::FileNotOpen),
+            // * If not open for writing, return NotOpenForWrite.
+            Some(mut file_info) => {
+                if !file_info.writing {
+                    return Err(FileSystemError::NotOpenForWrite);
+                }
+ 
+                // Copy each byte from `buffer` into the FileInfo object's block buffer.
+                for i in 0..buffer.len(){
+                    file_info.block_buffer[file_info.offset] = buffer[i];
+                    file_info.offset += 1;
+ 
+                    // * If the block buffer fills up before `buffer` is empty:
+                    if file_info.offset == file_info.block_buffer.len(){
+ 
+                        //   * Write the current block buffer contents to disk.
+                        self.disk.write(file_info.inode.blocks[file_info.current_block].into(), &file_info.block_buffer);
+                        file_info.inode.bytes_stored += file_info.offset as u16;
+                        self.save_inode(file_info.inode_num, &file_info.inode);
+                        //     * If the file exceeds the maximum size, return FileTooBig.
+                        if file_info.inode_num + self.block_buffer.len() > MAX_FILE_BYTES{
+                            return Err(FileSystemError::FileTooBig(file_info.inode_num))
+                        }
+                        //   * Request a new data block.
+                        //   * Be sure to update your inode!
+                        let new_block = self.request_data_block()?;
+                        file_info.inode.blocks[file_info.current_block + 1] = new_block;
+                        self.save_inode(file_info.inode_num, &file_info.inode);
+                        file_info.offset = 0;
+                    }
+                   
+                }
+                        // * When finished, make sure to write the current block to disk.
+                self.disk.write(file_info.current_block, &file_info.block_buffer);
+                Ok(())
+            }
+        }
     }
 
     pub fn open_create_reset(
