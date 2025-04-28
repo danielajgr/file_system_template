@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 use thiserror_no_std::Error;
-use core::result::Result
+use core::result::Result;
 
 use core::cmp::{max, min};
 
